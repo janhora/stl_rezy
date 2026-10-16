@@ -69,7 +69,7 @@ if uploaded_file is not None:
                                     
                                     # STRUKTURA SVG - OPRAVENÝ JMENNÝ PROSTOR
                                     svg_lines = []
-                                    svg_lines.append(f'<svg xmlns="http://w3.org" width="{width_mm}mm" height="{height_mm}mm" viewBox="{min_x} {min_y} {width_mm} {height_mm}">')
+                                    svg_lines.append(f'<svg xmlns:svg="http://www.w3.org/2000/svg" width="{width_mm}mm" height="{height_mm}mm" viewBox="{min_x} {min_y} {width_mm} {height_mm}">')
                                     
                                     # OPRAVA FORMÁTU KŘIVKY (PATH) - Pouze mezery, žádné čárky z polí
                                     for path_3d in paths:
