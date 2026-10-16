@@ -61,7 +61,8 @@ if uploaded_file is not None:
                         
                         for i, z in enumerate(z_levels):
                             # Provedení 3D řezu rovinou v dané výšce Z
-                            section = mesh.section(plane_origin=[0, 0, z], plane_normal=)
+                            section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
+
                             
                             if section is not None:
                                 # Převod 3D řezu do 2D
