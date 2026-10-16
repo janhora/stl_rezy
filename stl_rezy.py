@@ -30,11 +30,12 @@ if uploaded_file is not None:
         bounds = mesh.bounds
         center = mesh.centroid
         
+        # OPRAVENO: Správné formátování NumPy pole po jednotlivých osách X, Y, Z
         st.success(
             f"Model úspěšně načten! Rozměry: "
-            f"X: {extents:.1f}mm, "
-            f"Y: {extents:.1f}mm, "
-            f"Z: {extents:.1f}mm"
+            f"X: {extents[0]:.1f}mm, "
+            f"Y: {extents[1]:.1f}mm, "
+            f"Z: {extents[2]:.1f}mm"
         )
         
         # Tlačítko pro spuštění zpracování
@@ -42,13 +43,13 @@ if uploaded_file is not None:
             with st.spinner("Zpracovávám model a generuji řezy..."):
                 
                 # Výpočet stabilní pozice děr (rozteč dáme jako 25% šířky modelu v ose X od středu)
-                hole_distance = extents * 0.25
-                hole1_x = center - hole_distance
-                hole2_x = center + hole_distance
-                hole_y = center
+                hole_distance = extents[0] * 0.25
+                hole1_x = center[0] - hole_distance
+                hole2_x = center[0] + hole_distance
+                hole_y = center[1]
                 
                 # Začátek řezání od spodní hranice Z po horní hranici Z
-                z_min, z_max = bounds, bounds
+                z_min, z_max = bounds[0][2], bounds[1][2]
                 z_levels = np.arange(z_min + (thickness/2), z_max, thickness)
                 
                 if len(z_levels) == 0:
@@ -62,39 +63,33 @@ if uploaded_file is not None:
                         for i, z in enumerate(z_levels):
                             # Provedení 3D řezu rovinou v dané výšce Z
                             section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
-
                             
                             if section is not None:
                                 # Převod 3D řezu do 2D
                                 planar, to_3d = section.to_planar()
                                 
-                                # Získání 2D ohraničení (bounding boxu) pro správné nastavení rozměrů SVG
-                                p_bounds = planar.bounds
+                                # Získání 2D ohraničení pro správné nastavení rozměrů SVG
                                 p_extents = planar.extents
                                 
                                 # Export základního obrysu do SVG řetězce
                                 svg_string = planar.export(file_type='svg')
                                 
                                 # Oprava hlavičky SVG, aby Inkscape správně pochopil mm
-                                # Trimesh generuje viewBox, ale my mu musíme natvrdo vnutit width a height v "mm"
                                 try:
-                                    # Najdeme šířku a výšku z trimesh exportu nebo použijeme rozměry polygonu
-                                    width_mm = max(p_extents, 1.0)
-                                    height_mm = max(p_extents, 1.0)
+                                    width_mm = max(p_extents[0], 1.0)
+                                    height_mm = max(p_extents[1], 1.0)
                                     
                                     # Vložíme explicitní jednotky mm hned na začátek <svg značky
                                     if 'width="' in svg_string:
-                                        # Odstraníme staré width/height definované trimeshem, které mátly Inkscape
                                         root = ET.fromstring(svg_string)
                                         viewbox = root.get('viewBox', f"0 0 {width_mm} {height_mm}")
                                         
                                         # Sestavíme novou čistou hlavičku
                                         new_header = f'<svg xmlns="http://w3.org" width="{width_mm}mm" height="{height_mm}mm" viewBox="{viewbox}">'
-                                        # Nahradíme původní otevírací tag <svg ... >
                                         header_end = svg_string.find('>')
                                         svg_string = new_header + svg_string[header_end+1:]
                                 except Exception:
-                                    pass # Pokud parsování selže, necháme původní string
+                                    pass
                                 
                                 # Transformace 3D souřadnic děr do lokálních 2D souřadnic daného řezu
                                 to_2d_matrix = trimesh.transformations.inverse_matrix(to_3d)
@@ -107,7 +102,7 @@ if uploaded_file is not None:
                                 r_hole = hole_dia / 2.0
                                 circles_svg = ""
                                 for pt in center_2d:
-                                    circles_svg += f'\n<circle cx="{pt}" cy="{pt}" r="{r_hole}" stroke="black" stroke-width="0.1" fill="none" />'
+                                    circles_svg += f'\n<circle cx="{pt[0]}" cy="{pt[1]}" r="{r_hole}" stroke="black" stroke-width="0.1" fill="none" />'
                                 
                                 # Vložení kružnic na konec souboru před uzavírací značku </svg>
                                 if "</svg>" in svg_string:
