@@ -3,18 +3,17 @@ import trimesh
 import io
 import zipfile
 import numpy as np
-import xml.etree.ElementTree as ET
 
 # Nastavení vzhledu webové stránky
 st.set_page_config(page_title="STL na SVG Slicer", layout="centered")
-st.title("✂️ STL na SVG Slicer pro laser")
-st.write("Nahrajte STL model, nastavte parametry a stáhněte si SVG vrstvy pro vyřezání z kartonu.")
+st.title("✂️ STL na SVG Slicer pro laser (Opravená verze)")
+st.write("Nahrajte STL model, nastavte parametry a stáhněte si SVG vrstvy v přesném měřítku 1:1 pro Inkscape a laser.")
 
 # 1. Ovládací prvky v bočním panelu (Sidebar)
 st.sidebar.header("Parametry řezání")
 thickness = st.sidebar.slider("Tloušťka kartonu / vrstvy (mm)", min_value=0.5, max_value=20.0, value=3.0, step=0.1)
 hole_dia = st.sidebar.slider("Průměr polohovacích děr (mm)", min_value=1.0, max_value=10.0, value=3.0, step=0.5)
-st.sidebar.info("Díry se automaticky vyvrtají vertikálně skrz celý model.")
+st.sidebar.info("Měřítko je pevně uzamčeno na 1 jednotka STL = 1 mm.")
 
 # 2. Nahrání souboru
 uploaded_file = st.file_uploader("Vyberte 3D model ve formátu .stl", type=["stl"])
@@ -30,9 +29,8 @@ if uploaded_file is not None:
         bounds = mesh.bounds
         center = mesh.centroid
         
-        # OPRAVENO: Správné formátování NumPy pole po jednotlivých osách X, Y, Z
         st.success(
-            f"Model úspěšně načten! Rozměry: "
+            f"Model úspěšně načten! Skutečné rozměry: "
             f"X: {extents[0]:.1f}mm, "
             f"Y: {extents[1]:.1f}mm, "
             f"Z: {extents[2]:.1f}mm"
@@ -42,7 +40,7 @@ if uploaded_file is not None:
         if st.button("Spustit řezání a generování SVG"):
             with st.spinner("Zpracovávám model a generuji řezy..."):
                 
-                # Výpočet stabilní pozice děr (rozteč dáme jako 25% šířky modelu v ose X od středu)
+                # Výpočet stabilní pozice děr v osách X a Y (v absolutních mm podle modelu)
                 hole_distance = extents[0] * 0.25
                 hole1_x = center[0] - hole_distance
                 hole2_x = center[0] + hole_distance
@@ -58,6 +56,12 @@ if uploaded_file is not None:
                     # Příprava ZIP archivu v paměti
                     zip_buffer = io.BytesIO()
                     
+                    # Pro bounding box celého dokumentu použijeme rozměry modelu s mírným okrajem
+                    margin = 10.0
+                    box_x_min, box_y_min = bounds[0][0] - margin, bounds[0][1] - margin
+                    box_width = extents[0] + (2 * margin)
+                    box_height = extents[1] + (2 * margin)
+                    
                     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                         
                         for i, z in enumerate(z_levels):
@@ -65,48 +69,31 @@ if uploaded_file is not None:
                             section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
                             
                             if section is not None:
-                                # Převod 3D řezu do 2D
+                                # Převod 3D řezu do 2D entit (čisté polygony/křivky)
                                 planar, to_3d = section.to_planar()
                                 
-                                # Získání 2D ohraničení pro správné nastavení rozměrů SVG
-                                p_extents = planar.extents
+                                # Vygenerujeme si vlastní čisté SVG s korektní jmennou hiearchií W3C
+                                svg_lines = []
+                                svg_lines.append(f'<svg xmlns="http://w3.org" width="{box_width}mm" height="{box_height}mm" viewBox="{box_x_min} {box_y_min} {box_width} {box_height}">')
                                 
-                                # Export základního obrysu do SVG řetězce
-                                svg_string = planar.export(file_type='svg')
+                                # Projdeme všechny křivky (polygony) v řezu a vygenerujeme pro ně <path> tagy
+                                # Transformujeme 2D polygony zpět do původních souřadnic modelu X, Y, abychom neztratili měřítko 1:1
+                                for path_3d in section.discrete:
+                                    if len(path_3d) > 1:
+                                        d_string = f"M {path_3d[0][0]},{path_3d[0][1]}"
+                                        for pt in path_3d[1:]:
+                                            d_string += f" L {pt[0]},{pt[1]}"
+                                        d_string += " Z"
+                                        svg_lines.append(f'  <path d="{d_string}" stroke="blue" stroke-width="0.2" fill="none" />')
                                 
-                                # Oprava hlavičky SVG, aby Inkscape správně pochopil mm
-                                try:
-                                    width_mm = max(p_extents[0], 1.0)
-                                    height_mm = max(p_extents[1], 1.0)
-                                    
-                                    # Vložíme explicitní jednotky mm hned na začátek <svg značky
-                                    if 'width="' in svg_string:
-                                        root = ET.fromstring(svg_string)
-                                        viewbox = root.get('viewBox', f"0 0 {width_mm} {height_mm}")
-                                        
-                                        # Sestavíme novou čistou hlavičku
-                                        new_header = f'<svg xmlns="http://w3.org" width="{width_mm}mm" height="{height_mm}mm" viewBox="{viewbox}">'
-                                        header_end = svg_string.find('>')
-                                        svg_string = new_header + svg_string[header_end+1:]
-                                except Exception:
-                                    pass
-                                
-                                # Transformace 3D souřadnic děr do lokálních 2D souřadnic daného řezu
-                                to_2d_matrix = trimesh.transformations.inverse_matrix(to_3d)
-                                center_2d = trimesh.transformations.transform_points([
-                                    [hole1_x, hole_y, z],
-                                    [hole2_x, hole_y, z]
-                                ], to_2d_matrix)
-                                
-                                # Vstřiknutí SVG elementů pro kružnice (polohovací díry)
+                                # Přidáme dvě polohovací díry jako perfektní kružnice s poloměrem v milimetrech
                                 r_hole = hole_dia / 2.0
-                                circles_svg = ""
-                                for pt in center_2d:
-                                    circles_svg += f'\n<circle cx="{pt[0]}" cy="{pt[1]}" r="{r_hole}" stroke="black" stroke-width="0.1" fill="none" />'
+                                svg_lines.append(f'  <circle cx="{hole1_x}" cy="{hole_y}" r="{r_hole}" stroke="red" stroke-width="0.2" fill="none" />')
+                                svg_lines.append(f'  <circle cx="{hole2_x}" cy="{hole_y}" r="{r_hole}" stroke="red" stroke-width="0.2" fill="none" />')
                                 
-                                # Vložení kružnic na konec souboru před uzavírací značku </svg>
-                                if "</svg>" in svg_string:
-                                    svg_string = svg_string.replace("</svg>", f"{circles_svg}\n</svg>")
+                                # Uzavření SVG dokumentu
+                                svg_lines.append('</svg>')
+                                svg_string = "\n".join(svg_lines)
                                 
                                 # Uložení vrstvy do ZIPu
                                 file_name = f"vrstva_{i+1:03d}_z_{z:.2f}mm.svg"
