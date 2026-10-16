@@ -5,7 +5,7 @@ import zipfile
 import numpy as np
 
 st.set_page_config(page_title="STL na SVG Slicer", layout="centered")
-st.title("✂️ STL na SVG Slicer pro laser (Oprava formátu)")
+st.title("✂️ STL na SVG Slicer pro laser (Oprava formátu...)")
 st.write("Nahrajte STL model, nastavte parametry a stáhněte si SVG vrstvy v přesném měřítku 1:1 pro Inkscape.")
 
 # 1. Ovládací prvky v bočním panelu
